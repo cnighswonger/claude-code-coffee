@@ -1,0 +1,96 @@
+# claude-code-coffee
+
+A [Claude Code](https://github.com/anthropics/claude-code) skill that keeps your prompt cache warm while you're away. Prevents expensive cold cache rebuilds when you return from a break.
+
+## The problem
+
+When you step away from a Claude Code session, the prompt cache expires after its TTL (5 minutes under overage pricing, 1 hour normally). Returning to a large context forces a full cache rebuild at $3.75/MTok instead of a cache read at $0.30/MTok. A 100k token context costs ~$0.38 to rebuild from scratch.
+
+## The solution
+
+`/coffee 30` schedules lightweight periodic pings that keep the cache in the "read" state while you're away. Each ping costs ~12.5x less than a cold rebuild.
+
+## Installation
+
+**One-liner:**
+
+```bash
+mkdir -p ~/.claude/skills/coffee && curl -fsSL https://raw.githubusercontent.com/cnighswonger/claude-code-coffee/main/SKILL.md -o ~/.claude/skills/coffee/SKILL.md
+```
+
+**Or clone and install:**
+
+```bash
+git clone https://github.com/cnighswonger/claude-code-coffee.git
+cd claude-code-coffee
+bash install.sh
+```
+
+Restart Claude Code after installing to pick up the new skill.
+
+## Usage
+
+```
+/coffee [duration]
+```
+
+| Command | Duration | Description |
+|---------|----------|-------------|
+| `/coffee` | 30 min | Default coffee break |
+| `/coffee 15` | 15 min | Quick break |
+| `/coffee 1h` | 1 hour | Meeting |
+| `/coffee 2h` | 2 hours | Long lunch |
+
+When invoked, the skill:
+1. Detects your current cache TTL tier (5min or 1h)
+2. Estimates your context size
+3. Shows a cost breakdown (ping cost vs cold start cost vs savings)
+4. Schedules recurring keepalive pings at the right interval
+5. Schedules an auto-cleanup that stops pings when your break is over
+
+To cancel early, ask Claude to delete the keepalive cron job.
+
+## Cost model
+
+| Rate | Claude Opus |
+|------|-------------|
+| Cache read (what pings cost) | $0.30/MTok |
+| Cache creation (what cold starts cost) | $3.75/MTok |
+
+### Example: 100k context, 30min break
+
+| TTL Tier | Pings | Ping Cost | Cold Start | Savings |
+|----------|-------|-----------|------------|---------|
+| 1h (normal) | 1 | ~$0.03 | ~$0.38 | ~$0.35 (92%) |
+| 5m (overage) | 7 | ~$0.21 | ~$0.38 | ~$0.17 (44%) |
+
+A single ping is always 12.5x cheaper than a cold rebuild. The break-even is guaranteed.
+
+## Cache TTL detection
+
+The skill reads `~/.claude/quota-status.json` to detect your cache TTL tier:
+- **1h tier** — normal operation (Q5h quota < 100%)
+- **5m tier** — overage pricing active (Q5h quota >= 100%)
+
+If the quota file is not available, the skill conservatively assumes the 5min tier (pings more often, costs slightly more, but always cheaper than a cold start).
+
+For accurate TTL detection, install [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix), which writes the quota status file from API response headers.
+
+## Requirements
+
+- Claude Code with cron scheduling support (CronCreate tool)
+- Node.js >= 18
+
+## Related
+
+- [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix) — Fixes the prompt cache regression bug that causes up to 20x cost increase on resumed sessions
+
+## Support
+
+If this tool saved you money, consider buying me a coffee:
+
+<a href="https://buymeacoffee.com/vsits" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+## License
+
+[MIT](LICENSE)
