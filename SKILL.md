@@ -99,6 +99,10 @@ Calculate:
 - `cold_start_cost` = context_tokens / 1,000,000 * 3.75
 - `savings` = cold_start_cost - total_ping_cost
 
+**Context size guidance** (add to display):
+- If estimated context is **below 50k tokens**, add a note: "At this context size, cost savings are marginal (~break-even at 35-40k). Latency benefit still applies — warm cache responses are faster."
+- If estimated context is **80k+ tokens**, add a note: "Large context — keepalive is highly cost-effective here (47%+ ROI at 100k, scales higher with size)."
+
 Display to the user in this format:
 
 ```

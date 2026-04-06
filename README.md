@@ -66,6 +66,27 @@ To cancel early, ask Claude to delete the keepalive cron job.
 
 A single ping is always 12.5x cheaper than a cold rebuild. The break-even is guaranteed.
 
+### Real-world results
+
+Empirical data from 18 pings across 3 sessions (~150 minutes total):
+
+| Metric | Observed |
+|--------|----------|
+| Warm ping cache read rate | 99.8% |
+| Warm ping cost | ~$0.011/ping |
+| First ping cost (context drift) | $0.04-0.08 |
+| Break-even context size | ~35-40k tokens (single return) |
+| ROI at 100k context | ~47% savings vs cold start |
+| ROI at 200k+ context | Scales dramatically higher |
+| TTL tier maintained | 1h throughout all tests |
+
+The technique is most valuable at **80k+ context** — the kind of context you build during research sessions, long debugging runs, or extended feature work. Below ~35-40k tokens, a single keepalive ping roughly breaks even with one cold start, though latency benefits still apply (warm cache responses are faster).
+
+## Known limitations
+
+- **Subagent/teammate cache TTL**: Subagents and teammates receive a **5-minute ephemeral cache TTL**, not the 1-hour TTL that the main session gets. The default 50-minute ping interval (designed for the 1h TTL) does not keep subagent caches warm. Subagents would need `*/4` cron intervals to maintain their cache, but the skill currently only manages the main session's cache.
+- **Context drift on first ping**: The first keepalive ping after scheduling typically has a lower cache hit rate ($0.04-0.08 vs ~$0.011) because the context has shifted slightly since the last real interaction. Subsequent pings hit 99.8%+ cache read rates.
+
 ## Cache TTL detection
 
 The skill reads `~/.claude/quota-status.json` to detect your cache TTL tier:
