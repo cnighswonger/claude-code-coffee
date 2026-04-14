@@ -1,5 +1,7 @@
 # claude-code-coffee
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT) [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-blue)](https://github.com/anthropics/claude-code)
+
 A [Claude Code](https://github.com/anthropics/claude-code) skill that keeps your prompt cache warm while you're away. Prevents expensive cold cache rebuilds when you return from a break.
 
 ## The problem
