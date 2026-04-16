@@ -6,11 +6,11 @@ A [Claude Code](https://github.com/anthropics/claude-code) skill that keeps your
 
 ## The problem
 
-When you step away from a Claude Code session, the prompt cache expires after its TTL (5 minutes under overage pricing, 1 hour normally). Returning to a large context forces a full cache rebuild at $3.75/MTok instead of a cache read at $0.30/MTok. A 100k token context costs ~$0.38 to rebuild from scratch.
+When you step away from a Claude Code session, the prompt cache expires after its TTL (5 minutes under overage pricing, 1 hour normally). Returning to a large context forces a full cache rebuild at $10/MTok (1h write) instead of a cache read at $0.50/MTok. A 460k token context costs ~$3.86 to rebuild from scratch.
 
 ## The solution
 
-`/coffee 30` schedules lightweight periodic pings that keep the cache in the "read" state while you're away. Each ping costs ~12.5x less than a cold rebuild.
+`/coffee 30` schedules lightweight periodic pings that keep the cache in the "read" state while you're away. Each ping costs ~17x less than a cold rebuild.
 
 ## Installation
 
@@ -42,52 +42,68 @@ Restart Claude Code after installing to pick up the new skill.
 | `/coffee 15` | 15 min | Quick break |
 | `/coffee 1h` | 1 hour | Meeting |
 | `/coffee 2h` | 2 hours | Long lunch |
+| `/coffee overnight` | Until 8 AM | Overnight warmer |
+| `/coffee overnight 7` | Until 7 AM | Custom wake time |
 
 When invoked, the skill:
 1. Detects your current cache TTL tier (5min or 1h)
 2. Estimates your context size
 3. Shows a cost breakdown (ping cost vs cold start cost vs savings)
 4. Schedules recurring keepalive pings at the right interval
-5. Schedules an auto-cleanup that stops pings when your break is over
+5. Schedules an auto-cleanup that stops pings when your break/night is over
 
 To cancel early, ask Claude to delete the keepalive cron job.
 
 ## Cost model
 
-| Rate | Claude Opus |
-|------|-------------|
-| Cache read (what pings cost) | $0.30/MTok |
-| Cache creation (what cold starts cost) | $3.75/MTok |
+| Rate | Claude Opus 4.6/4.7 |
+|------|---------------------|
+| Cache read (what pings cost) | $0.50/MTok |
+| Cache creation 1h (what cold starts cost) | $10.00/MTok |
+| Cache creation 5m (overage cold starts) | $6.25/MTok |
 
-### Example: 100k context, 30min break
+### Per-ping vs cold start at common context sizes
 
-| TTL Tier | Pings | Ping Cost | Cold Start | Savings |
-|----------|-------|-----------|------------|---------|
-| 1h (normal) | 1 | ~$0.03 | ~$0.38 | ~$0.35 (92%) |
-| 5m (overage) | 7 | ~$0.21 | ~$0.38 | ~$0.17 (44%) |
+| Context | Ping cost | Cold start (1h) | Pings per cold start |
+|---------|-----------|-----------------|---------------------|
+| 200K | $0.10 | $2.00 | ~20 |
+| 460K | $0.23 | $4.60 | ~20 |
+| 900K | $0.45 | $9.00 | ~20 |
 
-A single ping is always 12.5x cheaper than a cold rebuild. The break-even is guaranteed.
+One cold start buys ~20 warmer pings at 50-minute intervals — enough to cover ~16 hours of idle time.
 
-### Real-world results
+### When the warmer earns its keep
 
-Empirical data from 18 pings across 3 sessions (~150 minutes total):
+**Daytime breaks (coffee, lunch, meetings):** Clear win. 1-4 pings vs 1 cold start. Each break you take without the warmer costs $2-9 depending on context size.
 
-| Metric | Observed |
-|--------|----------|
-| Warm ping cache read rate | 99.8% |
-| Warm ping cost | ~$0.011/ping |
-| First ping cost (context drift) | $0.04-0.08 |
-| Break-even context size | ~35-40k tokens (single return) |
-| ROI at 100k context | ~47% savings vs cold start |
-| ROI at 200k+ context | Scales dramatically higher |
-| TTL tier maintained | 1h throughout all tests |
+**Overnight (8-10 hours):** At 50-minute intervals, ~9-10 pings per overnight. Costs ~40% less than a morning cold start at typical context sizes. On subscription plans, there's an additional benefit: overnight pings burn Q5h in idle quota windows, preserving headroom for morning work.
 
-The technique is most valuable at **80k+ context** — the kind of context you build during research sessions, long debugging runs, or extended feature work. Below ~35-40k tokens, a single keepalive ping roughly breaks even with one cold start, though latency benefits still apply (warm cache responses are faster).
+**During active work:** Not needed — your real turns keep the cache warm. The warmer adds the most value when you're away from the keyboard.
+
+### Real-world data (10-day session)
+
+From a metered 10-day session on Max 5x with ~460K context:
+
+| Metric | Value |
+|--------|-------|
+| Total warmer pings | 429 |
+| Avg ping cost | $0.23 |
+| Avg cold start cost | $3.86 |
+| Per-ping ROI | 16.8x |
+| Cache hit rate during pings | 99.8%+ |
+| Clean overnight pings (per night) | 9-10 |
+| Overnight cost (per night) | $2.07-$2.30 |
+| Cold start it prevents | $3.86 |
+
+The warmer's overnight value is also **Q5h timing** on subscription plans: pings during idle hours burn quota in windows you won't use, preserving your fresh morning Q5h budget.
+
+Full analysis: [What We Learned from a 10-Day Session](https://veritassuperaitsolutions.com)
 
 ## Known limitations
 
-- **Subagent/teammate cache TTL**: Subagents and teammates receive a **5-minute ephemeral cache TTL**, not the 1-hour TTL that the main session gets. The default 50-minute ping interval (designed for the 1h TTL) does not keep subagent caches warm. Subagents would need `*/4` cron intervals to maintain their cache, but the skill currently only manages the main session's cache.
-- **Context drift on first ping**: The first keepalive ping after scheduling typically has a lower cache hit rate ($0.04-0.08 vs ~$0.011) because the context has shifted slightly since the last real interaction. Subsequent pings hit 99.8%+ cache read rates.
+- **Subagent/teammate cache TTL**: Subagents and teammates receive a **5-minute ephemeral cache TTL**, not the 1-hour TTL that the main session gets. The default 50-minute ping interval does not keep subagent caches warm. Subagents would need `*/4` cron intervals.
+- **Context drift on first ping**: The first keepalive ping after scheduling typically has a lower cache hit rate because the context has shifted slightly since the last real interaction. Subsequent pings hit 99.8%+ cache read rates.
+- **Cannot suppress during active work**: The warmer doesn't detect whether you're actively using the session. If left running 24/7, daytime pings during active work are redundant. Use `/coffee` per-break or `/coffee overnight` rather than running it continuously.
 
 ## Cache TTL detection
 
@@ -95,7 +111,7 @@ The skill reads `~/.claude/quota-status.json` to detect your cache TTL tier:
 - **1h tier** — normal operation (Q5h quota < 100%)
 - **5m tier** — overage pricing active (Q5h quota >= 100%)
 
-If the quota file is not available, the skill conservatively assumes the 5min tier (pings more often, costs slightly more, but always cheaper than a cold start).
+If the quota file is not available, the skill conservatively assumes the 5min tier.
 
 For accurate TTL detection, install [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix), which writes the quota status file from API response headers.
 
@@ -106,11 +122,13 @@ For accurate TTL detection, install [claude-code-cache-fix](https://github.com/c
 
 ## Related
 
-- [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix) — Fixes the prompt cache regression bug that causes up to 20x cost increase on resumed sessions
+- [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix) — Prompt cache interceptor (140+ stars)
+- [claude-code-meter](https://github.com/cnighswonger/claude-code-meter) — Community cost analytics with [live dashboard](https://meter.veritassuperaitsolutions.com)
+- [VS Code extension](https://github.com/cnighswonger/claude-code-cache-fix-vscode) — One-click activation for VS Code users
 
 ## Support
 
-If this tool saved you money, consider buying me a coffee:
+If this tool saved you money, consider buying us a coffee:
 
 <a href="https://buymeacoffee.com/vsits" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 

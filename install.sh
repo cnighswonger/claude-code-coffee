@@ -19,4 +19,4 @@ else
 fi
 
 echo "Restart Claude Code to pick up the new skill."
-echo "Usage: /coffee 30"
+echo "Usage: /coffee 30  |  /coffee 2h  |  /coffee overnight"
