@@ -1,7 +1,7 @@
 ---
 name: coffee
 description: Keep prompt cache warm during idle periods to avoid expensive cold rebuilds. Use when stepping away from a session.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # /coffee — Cache Keepalive
@@ -14,10 +14,11 @@ The user's input is: `$ARGUMENTS`
 
 **Parsing rules:**
 - If empty, `--help`, or `help`: show the **Usage** section below and STOP — do not create any cron jobs.
+- If `overnight` or `overnight N`: overnight mode. N is the wake hour in local time (default: 8 = 8:00 AM). Calculate the number of minutes from now until the next occurrence of that hour. If that hour has already passed today, target tomorrow morning. Minimum overnight duration: 60 minutes. Maximum: 840 minutes (14 hours).
 - If a bare number (e.g. `30`): treat as minutes.
 - If suffixed (e.g. `30m`, `1h`, `2h`): parse accordingly. Convert hours to minutes.
 - Default if not specified: 30 minutes.
-- Minimum: 5 minutes. Maximum: 480 minutes (8 hours).
+- Minimum: 5 minutes. Maximum: 480 minutes (8 hours) for non-overnight mode.
 
 ## Usage (show this if no args or --help)
 
@@ -26,12 +27,14 @@ The user's input is: `$ARGUMENTS`
 
 Keep your prompt cache warm while you're away.
 
-Duration: number of minutes (default: 30). Accepts: 15, 30m, 1h, 2h
+Duration: number of minutes (default: 30). Accepts: 15, 30m, 1h, 2h, overnight
 Examples:
-  /coffee        — 30 minute coffee break
-  /coffee 15     — quick 15 minute break
-  /coffee 1h     — hour-long meeting
-  /coffee 2h     — long lunch
+  /coffee           — 30 minute coffee break
+  /coffee 15        — quick 15 minute break
+  /coffee 1h        — hour-long meeting
+  /coffee 2h        — long lunch
+  /coffee overnight  — warmer until 8:00 AM local, then auto-stop
+  /coffee overnight 7 — warmer until 7:00 AM local
 
 How it works:
   Schedules periodic minimal API calls that keep your prompt cache in the
@@ -123,6 +126,14 @@ Scheduling keepalive...
 If quota pct >= 80, add a warning: "Quota at {pct}% — consider compacting before your break."
 If quota pct >= 100 or overage is active, add: "OVERAGE PRICING ACTIVE — cache keepalive is especially valuable right now."
 
+**Overnight mode additional display:** If the input was `overnight`, add after the cost estimate:
+```
+Overnight note: Warmer pings during overnight hours burn Q5h in
+windows you won't use, preserving headroom for your morning work
+session. At 50-min intervals, ~9-10 pings per 8-hour overnight
+costs ~40% less than a morning cold start at typical context sizes.
+```
+
 ## Step 4: Schedule Keepalive Pings
 
 Use the CronCreate tool to create a **recurring** cron job:
@@ -145,10 +156,20 @@ Use the CronCreate tool to create a **one-shot** cron job that fires at the clea
 
 Tell the user:
 
+For regular breaks:
 ```
 Keepalive active! {num_pings} pings scheduled over {duration}min.
 Cache will stay warm until auto-cleanup at {cleanup_time}.
 
 To cancel early: ask me to delete cron job {ping_job_id}
 Enjoy your break!
+```
+
+For overnight mode:
+```
+Overnight warmer active! ~{num_pings} pings until {wake_hour}:00.
+Cache will stay warm until auto-cleanup at {cleanup_time}.
+
+To cancel early: ask me to delete cron job {ping_job_id}
+Good night!
 ```
