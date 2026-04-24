@@ -99,6 +99,17 @@ The warmer's overnight value is also **Q5h timing** on subscription plans: pings
 
 Full analysis: [What We Learned from a 10-Day Session](https://veritassuperaitsolutions.com)
 
+## Stale cache safety
+
+Each warmer ping checks the timestamp of the last API call before executing. If the gap exceeds the cache TTL (65 minutes for 1h tier, 6 minutes for 5m tier), the ping **skips** and warns instead of triggering an expensive cold rebuild.
+
+This protects against:
+- **Resume after overnight**: if you `/exit` with a warmer running and `--continue` the next morning, the first warmer fire sees the multi-hour gap and skips instead of rebuilding your full context at cold-start rates
+- **Stale sessions**: any scenario where the cache has already expired by the time the ping fires
+- **Unexpected interruptions**: network drops, system sleep, or service restarts that cause a gap longer than the TTL
+
+When a skip occurs, the warmer recommends `/compact` before continuing — reducing the inevitable cold-start cost from the full context size down to the compacted summary.
+
 ## Known limitations
 
 - **Subagent/teammate cache TTL**: Subagents and teammates receive a **5-minute ephemeral cache TTL**, not the 1-hour TTL that the main session gets. The default 50-minute ping interval does not keep subagent caches warm. Subagents would need `*/4` cron intervals.

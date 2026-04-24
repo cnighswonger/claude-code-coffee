@@ -138,7 +138,7 @@ costs ~40% less than a morning cold start at typical context sizes.
 
 Use the CronCreate tool to create a **recurring** cron job:
 - `cron`: the ping interval expression from Step 1 (e.g., `*/4 * * * *` or `*/50 * * * *`)
-- `prompt`: "Cache keepalive ping. Respond with exactly: ok. Do not use tools or take any actions."
+- `prompt`: "Cache keepalive ping. First, read ~/.claude/quota-status.json and check the timestamp field. If the gap between the timestamp and now is longer than 65 minutes (1h TTL tier) or longer than 6 minutes (5m TTL tier), the cache has already expired. In that case, DO NOT respond with ok. Instead respond: 'Warmer SKIPPED — cache expired (gap: Xm). A ping now would trigger a full cold rebuild. Recommend /compact before continuing.' Otherwise, respond with: ok"
 - `recurring`: true
 
 Record the returned job ID — you will need it for the cleanup job.
