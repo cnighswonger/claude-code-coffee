@@ -1,7 +1,7 @@
 ---
 name: coffee
 description: Keep prompt cache warm during idle periods to avoid expensive cold rebuilds. Use when stepping away from a session.
-version: 1.1.0
+version: 1.3.0
 ---
 
 # /coffee — Cache Keepalive
@@ -62,14 +62,22 @@ If showing usage, STOP HERE. Do not proceed to the steps below.
 
 ## Step 1: Detect Cache TTL Tier
 
-Read the file `~/.claude/quota-status.json` using the Read tool.
+Read quota state from cache-fix's quota-status files. The path depends on the
+cache-fix version:
 
-- If the file exists and is valid JSON:
+- **cache-fix v3.5.0+** (proxy mode, per-session split): read
+  `~/.claude/quota-status/account.json`.
+- **cache-fix v3.4.x and earlier** (or preload mode): read
+  `~/.claude/quota-status.json`.
+
+Try the v3.5.0+ path first. If that file doesn't exist, try the legacy path.
+
+- If a file is found and is valid JSON:
   - Extract `five_hour.pct` (the Q5h quota percentage)
   - If `pct >= 100` OR `overage_status` is present and NOT `"allowed"`: TTL tier = **5 minutes**
   - Otherwise: TTL tier = **1 hour**
   - Note the `five_hour.pct` value for the cost display
-- If the file does not exist or cannot be read:
+- If neither file exists or both are unreadable:
   - TTL tier = **5 minutes** (conservative default)
   - Note: "TTL detection unavailable — using conservative 5min estimate. Install claude-code-cache-fix for accurate TTL detection."
 
@@ -138,7 +146,7 @@ costs ~40% less than a morning cold start at typical context sizes.
 
 Use the CronCreate tool to create a **recurring** cron job:
 - `cron`: the ping interval expression from Step 1 (e.g., `*/4 * * * *` or `*/50 * * * *`)
-- `prompt`: "Cache keepalive ping. First, read ~/.claude/quota-status.json and check the timestamp field. If the gap between the timestamp and now is longer than 65 minutes (1h TTL tier) or longer than 6 minutes (5m TTL tier), the cache has already expired. In that case, DO NOT respond with ok. Instead respond: 'Warmer SKIPPED — cache expired (gap: Xm). A ping now would trigger a full cold rebuild. Recommend /compact before continuing.' Otherwise, respond with: ok"
+- `prompt`: "Cache keepalive ping. First, read the cache-fix quota-status file and check the timestamp field. Try `~/.claude/quota-status/account.json` first (cache-fix v3.5.0+); if that file doesn't exist, fall back to `~/.claude/quota-status.json` (cache-fix v3.4.x and earlier, or preload mode). If the gap between the timestamp and now is longer than 65 minutes (1h TTL tier) or longer than 6 minutes (5m TTL tier), the cache has already expired. In that case, DO NOT respond with ok. Instead respond: 'Warmer SKIPPED — cache expired (gap: Xm). A ping now would trigger a full cold rebuild. Recommend /compact before continuing.' Otherwise, respond with: ok"
 - `recurring`: true
 
 Record the returned job ID — you will need it for the cleanup job.

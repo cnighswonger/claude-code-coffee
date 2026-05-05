@@ -118,11 +118,15 @@ When a skip occurs, the warmer recommends `/compact` before continuing — reduc
 
 ## Cache TTL detection
 
-The skill reads `~/.claude/quota-status.json` to detect your cache TTL tier:
+The skill reads cache-fix's quota-status file to detect your cache TTL tier:
 - **1h tier** — normal operation (Q5h quota < 100%)
 - **5m tier** — overage pricing active (Q5h quota >= 100%)
 
-If the quota file is not available, the skill conservatively assumes the 5min tier.
+Path varies by cache-fix version:
+- **v3.5.0+** (proxy mode, per-session split): `~/.claude/quota-status/account.json`
+- **v3.4.x and earlier** (or preload mode): `~/.claude/quota-status.json`
+
+The skill tries the v3.5.0+ path first and falls back to the legacy path. If neither file is available, the skill conservatively assumes the 5min tier.
 
 For accurate TTL detection, install [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix), which writes the quota status file from API response headers.
 
