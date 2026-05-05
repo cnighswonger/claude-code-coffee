@@ -118,17 +118,23 @@ When a skip occurs, the warmer recommends `/compact` before continuing — reduc
 
 ## Cache TTL detection
 
-The skill reads cache-fix's quota-status file to detect your cache TTL tier:
-- **1h tier** — normal operation (Q5h quota < 100%)
-- **5m tier** — overage pricing active (Q5h quota >= 100%)
+The skill reads cache-fix's quota-status files in two places:
 
-Path varies by cache-fix version:
-- **v3.5.0+** (proxy mode, per-session split): `~/.claude/quota-status/account.json`
+**Step 1 — TTL tier detection** (account-global):
+- **cache-fix v3.5.0+**: `~/.claude/quota-status/account.json`
 - **v3.4.x and earlier** (or preload mode): `~/.claude/quota-status.json`
 
-The skill tries the v3.5.0+ path first and falls back to the legacy path. If neither file is available, the skill conservatively assumes the 5min tier.
+The skill tries the v3.5.0+ path first and falls back to the legacy path. If neither is available, the skill conservatively assumes the 5min tier.
 
-For accurate TTL detection, install [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix), which writes the quota status file from API response headers.
+**Step 4 — per-ping freshness gate** (per-session, v1.4.0+):
+
+On multi-agent hosts (multiple CC sessions sharing one cache-fix proxy), `account.json`'s timestamp gets refreshed by every session's traffic. The warmer's "is the cache still warm?" gate must read **this session's** state, not the account-wide file — otherwise a busy concurrent session can mask the fact that this session has gone idle long enough for its own cache to expire, causing the warmer to fire a ping into a cold cache and trigger the full rebuild it was supposed to prevent.
+
+v1.4.0 captures the current session_id at `/coffee` invocation and embeds it in the recurring cron prompt. The warmer reads `~/.claude/quota-status/sessions/<session_id>.json` (cache-fix v3.5.0+, per-session) and falls back to `~/.claude/quota-status.json` (legacy single-session) if not present.
+
+**Caveat:** the warmer is bound to the session that armed it. Resume-and-fork workflows need to re-arm `/coffee` in the new session.
+
+For accurate TTL detection, install [claude-code-cache-fix](https://github.com/cnighswonger/claude-code-cache-fix), which writes the quota status files from API response headers.
 
 ## Requirements
 

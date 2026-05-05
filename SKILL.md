@@ -1,7 +1,7 @@
 ---
 name: coffee
 description: Keep prompt cache warm during idle periods to avoid expensive cold rebuilds. Use when stepping away from a session.
-version: 1.3.0
+version: 1.4.0
 ---
 
 # /coffee — Cache Keepalive
@@ -85,6 +85,36 @@ Set the ping interval:
 - 5min TTL → ping every **4 minutes** (cron: `*/4 * * * *`)
 - 1h TTL → ping every **50 minutes** (cron: `*/50 * * * *`)
 
+## Step 1.5: Capture Current Session ID
+
+The warmer's "is the cache still warm?" gate must read **this session's**
+cache-state file, not the account-wide file. On multi-agent hosts (multiple
+CC sessions sharing one cache-fix proxy), `account.json`'s timestamp gets
+refreshed by every session's traffic — so a different busy session can
+mask the fact that *this* session has been idle long enough for its own
+cache to expire. Result without per-session attribution: warmer thinks
+cache is fresh, fires a ping, ping arrives at a cold cache, triggers the
+full rebuild that the warmer was supposed to prevent.
+
+Capture this session's id at invocation time and embed it literally in
+the recurring cron prompt (Step 4). Run:
+
+```bash
+ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl
+```
+
+The most-recently-modified `.jsonl` across all CC project directories at
+the moment this skill is running is THIS session's transcript (you have
+been making tool calls — the runtime is appending turns to it right now).
+Save the output as `<session_id>` for use in Step 4. If the command
+returns empty (no jsonl files at all, e.g. fresh install), set
+`<session_id>` to the literal string `unknown` — the warmer will fall
+back to account-level checking.
+
+**Caveat:** the warmer becomes bound to the session that armed it.
+Resume-and-fork workflows would need to re-arm `/coffee` in the new
+session.
+
 ## Step 2: Estimate Context Size
 
 You have access to the current conversation context. Estimate the total input token count from the most recent API usage you can observe. If you cannot determine the exact count, use the following heuristic:
@@ -146,7 +176,11 @@ costs ~40% less than a morning cold start at typical context sizes.
 
 Use the CronCreate tool to create a **recurring** cron job:
 - `cron`: the ping interval expression from Step 1 (e.g., `*/4 * * * *` or `*/50 * * * *`)
-- `prompt`: "Cache keepalive ping. First, read the cache-fix quota-status file and check the timestamp field. Try `~/.claude/quota-status/account.json` first (cache-fix v3.5.0+); if that file doesn't exist, fall back to `~/.claude/quota-status.json` (cache-fix v3.4.x and earlier, or preload mode). If the gap between the timestamp and now is longer than 65 minutes (1h TTL tier) or longer than 6 minutes (5m TTL tier), the cache has already expired. In that case, DO NOT respond with ok. Instead respond: 'Warmer SKIPPED — cache expired (gap: Xm). A ping now would trigger a full cold rebuild. Recommend /compact before continuing.' Otherwise, respond with: ok"
+- `prompt`: "Cache keepalive ping for session `<session_id>`. Read this session's cache-state file to check freshness. Try `~/.claude/quota-status/sessions/<session_id>.json` first (cache-fix v3.5.0+, per-session). If that file doesn't exist, fall back to `~/.claude/quota-status.json` (cache-fix v3.4.x and earlier, or preload mode — single-session by construction). Check the top-level `timestamp` field. If the gap between the timestamp and now is longer than 65 minutes (1h TTL tier) or longer than 6 minutes (5m TTL tier), THIS SESSION'S cache has already expired. In that case, DO NOT respond with ok. Instead respond: 'Warmer SKIPPED — cache expired (gap: Xm). A ping now would trigger a full cold rebuild. Recommend /compact before continuing.' Otherwise, respond with: ok. (Note: if `<session_id>` is the literal string 'unknown' or the per-session file isn't found and no legacy file exists, fall back to account-wide checking via `~/.claude/quota-status/account.json`.)"
+
+  Where `<session_id>` is the value captured in Step 1.5 — substitute it
+  literally into the prompt text before passing to CronCreate. Do NOT
+  leave the angle-brackets placeholder in place.
 - `recurring`: true
 
 Record the returned job ID — you will need it for the cleanup job.
