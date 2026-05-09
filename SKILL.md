@@ -1,7 +1,7 @@
 ---
 name: coffee
 description: Keep prompt cache warm during idle periods to avoid expensive cold rebuilds. Use when stepping away from a session.
-version: 1.4.0
+version: 1.4.1
 ---
 
 # /coffee — Cache Keepalive
@@ -100,7 +100,13 @@ Capture this session's id at invocation time and embed it literally in
 the recurring cron prompt (Step 4). Run:
 
 ```bash
-ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl
+python3 -c "
+import os, glob
+files = glob.glob(os.path.expanduser('~/.claude/projects/*/*.jsonl'))
+if files:
+    newest = max(files, key=os.path.getmtime)
+    print(os.path.basename(newest)[:-len('.jsonl')])
+"
 ```
 
 The most-recently-modified `.jsonl` across all CC project directories at
@@ -110,6 +116,19 @@ Save the output as `<session_id>` for use in Step 4. If the command
 returns empty (no jsonl files at all, e.g. fresh install), set
 `<session_id>` to the literal string `unknown` — the warmer will fall
 back to account-level checking.
+
+**Why Python instead of `ls -t`:** `ls -t` sorts by mtime at second-level
+resolution. On multi-agent hosts where multiple CC sessions are
+simultaneously active and writing to their respective jsonl files,
+several files routinely share the same `mm:ss` mtime, and `head -1`
+returns a non-deterministic winner — frequently NOT the session that
+invoked `/coffee`. The result: the warmer latches onto the wrong
+session, then either fires pings into a cold cache (false positive)
+or skips while this session is still active (false negative).
+`os.path.getmtime` returns a `float` with sub-second precision, which
+makes mtime collisions vanishingly rare. Python is portable across
+Linux and macOS; CC ships with Python 3 available in either case.
+(See coffee#2 for the failure-mode analysis.)
 
 **Caveat:** the warmer becomes bound to the session that armed it.
 Resume-and-fork workflows would need to re-arm `/coffee` in the new
