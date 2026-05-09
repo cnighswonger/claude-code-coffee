@@ -100,13 +100,24 @@ Capture this session's id at invocation time and embed it literally in
 the recurring cron prompt (Step 4). Run:
 
 ```bash
-python3 -c "
+session_id=$(python3 -c "
 import os, glob
-files = glob.glob(os.path.expanduser('~/.claude/projects/*/*.jsonl'))
-if files:
-    newest = max(files, key=os.path.getmtime)
-    print(os.path.basename(newest)[:-len('.jsonl')])
-"
+try:
+    files = glob.glob(os.path.expanduser('~/.claude/projects/*/*.jsonl'))
+    if files:
+        newest = max(files, key=os.path.getmtime)
+        print(os.path.basename(newest)[:-len('.jsonl')])
+except (OSError, ValueError):
+    pass
+" 2>/dev/null)
+
+if [ -z "$session_id" ]; then
+    # python3 unavailable or no files matched; fall back to ls -t (second-resolution
+    # mtime). On multi-agent hosts this can pick the wrong session — coffee#2.
+    session_id=$(ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl 2>/dev/null)
+fi
+
+echo "$session_id"
 ```
 
 The most-recently-modified `.jsonl` across all CC project directories at
@@ -117,7 +128,7 @@ returns empty (no jsonl files at all, e.g. fresh install), set
 `<session_id>` to the literal string `unknown` — the warmer will fall
 back to account-level checking.
 
-**Why Python instead of `ls -t`:** `ls -t` sorts by mtime at second-level
+**Why a Python primary path:** `ls -t` sorts by mtime at second-level
 resolution. On multi-agent hosts where multiple CC sessions are
 simultaneously active and writing to their respective jsonl files,
 several files routinely share the same `mm:ss` mtime, and `head -1`
@@ -126,9 +137,20 @@ invoked `/coffee`. The result: the warmer latches onto the wrong
 session, then either fires pings into a cold cache (false positive)
 or skips while this session is still active (false negative).
 `os.path.getmtime` returns a `float` with sub-second precision, which
-makes mtime collisions vanishingly rare. Python is portable across
-Linux and macOS; CC ships with Python 3 available in either case.
-(See coffee#2 for the failure-mode analysis.)
+makes mtime collisions vanishingly rare. The Python block is wrapped
+in `try/except` to handle TOCTOU (a jsonl file disappearing between
+glob and stat) — same silent-skip behavior as `ls -t 2>/dev/null`.
+
+**Why a `ls -t` fallback:** `python3` is widely available on hosts
+running Claude Code (Linux distros, macOS 12.3+, and WSL all ship
+Python 3 by default), but CC itself doesn't depend on Python and a
+minimal/container environment may not have it. When `python3` is
+missing we fall through to `ls -t`, accepting the second-resolution
+limitation — that path degrades gracefully because single-agent hosts
+(the common case where `python3` might also be absent) don't have the
+mtime-collision problem in the first place.
+
+(See coffee#2 for the original failure-mode analysis.)
 
 **Caveat:** the warmer becomes bound to the session that armed it.
 Resume-and-fork workflows would need to re-arm `/coffee` in the new
